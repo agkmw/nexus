@@ -14,7 +14,7 @@ func Respond(ctx context.Context, w http.ResponseWriter, status int, data Envelo
 		w.WriteHeader(status)
 		return nil
 	}
-	
+
 	js, err := json.MarshalIndent(data, "", "\t")
 	if err != nil {
 		return fmt.Errorf("web.respond.marshal: %w", err)
