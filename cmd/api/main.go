@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -8,7 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
+	"time"
 )
 
 const version = "1.0.0"
@@ -62,14 +66,37 @@ func main() {
 
 	logger.Info("server starting", "addr", server.Addr, "env", app.config.environment)
 
-	err := server.ListenAndServe()
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error("server failed", "ERROR", err)
+	errChan := make(chan error)
+	shutdown := make(chan os.Signal, 1)
+
+	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT)
+
+	go func() {
+		sig := <-shutdown
+
+		logger.Info("server shutting down", "sig", sig)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		errChan <- server.Shutdown(ctx)
+	}()
+
+	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		logger.Error("error shutting down the server", "error", err)
 		os.Exit(1)
 	}
+
+	if err := <-errChan; err != nil {
+		logger.Error("error shutting down the server", "ERROR", err)
+		os.Exit(1)
+	}
+
+	logger.Info("server shut down")
 }
 
 func (app *app) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
+	time.Sleep(5 * time.Second)
 	traceID := "00000000-0000-0000-0000-000000000000"
 
 	app.logger.Info("request started", "trace_id", traceID)
