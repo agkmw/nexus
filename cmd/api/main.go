@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +12,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/agkmw/reddit-clone/internal/platform/web"
 )
 
 const version = "1.0.0"
@@ -96,7 +97,6 @@ func main() {
 }
 
 func (app *app) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
-	time.Sleep(5 * time.Second)
 	traceID := "00000000-0000-0000-0000-000000000000"
 
 	app.logger.Info("request started", "trace_id", traceID)
@@ -105,21 +105,14 @@ func (app *app) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
 		app.logger.Info("request completed", "trace_id", traceID)
 	}()
 
-	data := map[string]string{
+	data := web.Envelope{
 		"environment": app.config.environment,
 		"version":     version,
 		"build":       build,
 	}
 
-	js, err := json.MarshalIndent(data, "", "\t")
+	err := web.Respond(context.Background(), w, http.StatusOK, data, nil)
 	if err != nil {
-		app.logger.Error("unable to marshal", "ERROR", err)
-		return
+		app.logger.Error("unable to respond", "trace_id", traceID, "ERROR", err)
 	}
-
-	js = append(js, '\n')
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(js)
 }
