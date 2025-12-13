@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agkmw/reddit-clone/internal/app/sdk/errs"
 	"github.com/agkmw/reddit-clone/internal/platform/web"
 )
 
@@ -59,6 +60,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/healthcheck", app.healthcheckHandler)
+	mux.HandleFunc("/v1/testServerError", app.testServerError)
+	mux.HandleFunc("/v1/testClientError", app.testClientError)
 
 	server := http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.port),
@@ -111,7 +114,56 @@ func (app *app) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
 		"build":       build,
 	}
 
-	err := web.Respond(context.Background(), w, http.StatusOK, data, nil)
+	err := web.Respond(context.Background(), w, http.StatusOK, data)
+	if err != nil {
+		app.logger.Error("unable to respond", "trace_id", traceID, "ERROR", err)
+	}
+}
+
+func (app *app) testServerError(w http.ResponseWriter, r *http.Request) {
+	traceID := "11111111-1111-1111-1111-111111111111"
+
+	app.logger.Info("request started", "trace_id", traceID)
+
+	defer func() {
+		app.logger.Info("request completed", "trace_id", traceID)
+	}()
+
+	se := errs.NewServerError(http.StatusInternalServerError, errors.New("test error"), errors.New("internal server error"))
+
+	app.logger.Error("handled error during request", "ERROR", se.LogErr)
+
+	env := web.Envelope{
+		"status":  "error",
+		"message": se.ResErr.Error(),
+	}
+
+	err := web.Respond(context.Background(), w, se.Code, env)
+	if err != nil {
+		app.logger.Error("unable to respond", "trace_id", traceID, "ERROR", err)
+	}
+}
+
+func (app *app) testClientError(w http.ResponseWriter, r *http.Request) {
+	traceID := "22222222-2222-2222-2222-222222222222"
+
+	app.logger.Info("request started", "trace_id", traceID)
+
+	defer func() {
+		app.logger.Info("request completed", "trace_id", traceID)
+	}()
+
+	ce := errs.NewClientError(http.StatusBadRequest, "there's nothing here, but chickens!", errors.New("you've messed up"))
+
+	app.logger.Info(ce.ResErr.Error(), "method", r.Method, "status", ce.Code, "uri", r.RequestURI)
+
+	env := web.Envelope{
+		"status":  "fail",
+		"message": ce.ResErr.Error(),
+		"data":    ce.Data,
+	}
+
+	err := web.Respond(context.Background(), w, ce.Code, env)
 	if err != nil {
 		app.logger.Error("unable to respond", "trace_id", traceID, "ERROR", err)
 	}
