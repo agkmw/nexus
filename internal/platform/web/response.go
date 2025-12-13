@@ -18,6 +18,8 @@ func RespondWithHeaders(ctx context.Context, w http.ResponseWriter, status int, 
 }
 
 func respond(ctx context.Context, w http.ResponseWriter, status int, data Envelope, headers http.Header) error {
+	setStatusCode(ctx, status)
+
 	if status == http.StatusNoContent {
 		w.WriteHeader(status)
 		return nil

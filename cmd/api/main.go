@@ -58,14 +58,21 @@ func main() {
 		logger: logger,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/healthcheck", app.healthcheckHandler)
-	mux.HandleFunc("/v1/testServerError", app.testServerError)
-	mux.HandleFunc("/v1/testClientError", app.testClientError)
+	logFn := func(ctx context.Context, msg string, args ...any) {
+		logger.Info(msg, args...)
+	}
+
+	api := web.NewApp(logFn, nil)
+
+	api.HandlerFunc(http.MethodGet, "/v1", "/healthcheck", app.healthcheckHandler)
+	api.HandlerFunc(http.MethodGet, "/v1", "/testServerError", app.testServerError)
+	api.HandlerFunc(http.MethodGet, "/v1", "/testClientError", app.testClientError)
 
 	server := http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.port),
-		Handler: mux,
+		Addr:         fmt.Sprintf(":%d", cfg.port),
+		Handler:      api,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 5 * time.Second,
 	}
 
 	logger.Info("server starting", "addr", server.Addr, "env", app.config.environment)
@@ -99,13 +106,14 @@ func main() {
 	logger.Info("server shut down")
 }
 
-func (app *app) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
-	traceID := "00000000-0000-0000-0000-000000000000"
+func (app *app) healthcheckHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	traceID := web.GetTraceID(ctx)
 
 	app.logger.Info("request started", "trace_id", traceID)
 
 	defer func() {
-		app.logger.Info("request completed", "trace_id", traceID)
+		status := web.GetStatusCode(ctx)
+		app.logger.Info("request completed", "trace_id", traceID, "status", status)
 	}()
 
 	data := web.Envelope{
@@ -114,19 +122,27 @@ func (app *app) healthcheckHandler(w http.ResponseWriter, r *http.Request) {
 		"build":       build,
 	}
 
-	err := web.Respond(context.Background(), w, http.StatusOK, data)
+	err := web.Respond(ctx, w, http.StatusOK, data)
+	// TODO: Just return the error from the web.Respond after centralized logging is implemented
 	if err != nil {
-		app.logger.Error("unable to respond", "trace_id", traceID, "ERROR", err)
+		return errs.NewServerError(
+			http.StatusInternalServerError,
+			errors.New("unable to respond"),
+			errors.New("internal server error"),
+		)
 	}
+
+	return nil
 }
 
-func (app *app) testServerError(w http.ResponseWriter, r *http.Request) {
-	traceID := "11111111-1111-1111-1111-111111111111"
+func (app *app) testServerError(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	traceID := web.GetTraceID(ctx)
 
 	app.logger.Info("request started", "trace_id", traceID)
 
 	defer func() {
-		app.logger.Info("request completed", "trace_id", traceID)
+		status := web.GetStatusCode(ctx)
+		app.logger.Info("request completed", "trace_id", traceID, "status", status)
 	}()
 
 	se := errs.NewServerError(http.StatusInternalServerError, errors.New("test error"), errors.New("internal server error"))
@@ -138,19 +154,27 @@ func (app *app) testServerError(w http.ResponseWriter, r *http.Request) {
 		"message": se.ResErr.Error(),
 	}
 
-	err := web.Respond(context.Background(), w, se.Code, env)
+	err := web.Respond(ctx, w, se.Code, env)
+	// TODO: Just return the error from the web.Respond after centralized logging is implemented
 	if err != nil {
-		app.logger.Error("unable to respond", "trace_id", traceID, "ERROR", err)
+		return errs.NewServerError(
+			http.StatusInternalServerError,
+			errors.New("unable to respond"),
+			errors.New("internal server error"),
+		)
 	}
+
+	return nil
 }
 
-func (app *app) testClientError(w http.ResponseWriter, r *http.Request) {
-	traceID := "22222222-2222-2222-2222-222222222222"
+func (app *app) testClientError(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	traceID := web.GetTraceID(ctx)
 
 	app.logger.Info("request started", "trace_id", traceID)
 
 	defer func() {
-		app.logger.Info("request completed", "trace_id", traceID)
+		status := web.GetStatusCode(ctx)
+		app.logger.Info("request completed", "trace_id", traceID, "status", status)
 	}()
 
 	ce := errs.NewClientError(http.StatusBadRequest, "there's nothing here, but chickens!", errors.New("you've messed up"))
@@ -163,8 +187,15 @@ func (app *app) testClientError(w http.ResponseWriter, r *http.Request) {
 		"data":    ce.Data,
 	}
 
-	err := web.Respond(context.Background(), w, ce.Code, env)
+	err := web.Respond(ctx, w, ce.Code, env)
+	// TODO: Just return the error from the web.Respond after centralized logging is implemented
 	if err != nil {
-		app.logger.Error("unable to respond", "trace_id", traceID, "ERROR", err)
+		return errs.NewServerError(
+			http.StatusInternalServerError,
+			errors.New("unable to respond"),
+			errors.New("internal server error"),
+		)
 	}
+
+	return nil
 }
