@@ -19,7 +19,7 @@ type App struct {
 	mw  []Middleware
 }
 
-func NewApp(logFn LogFn, mw []Middleware) *App {
+func NewApp(logFn LogFn, mw ...Middleware) *App {
 	mux := chi.NewMux()
 
 	return &App{
@@ -30,6 +30,8 @@ func NewApp(logFn LogFn, mw []Middleware) *App {
 }
 
 func (app *App) HandlerFunc(method, group, path string, handler Handler) {
+	handler = wrapMiddleware(app.mw, handler)
+
 	h := func(w http.ResponseWriter, r *http.Request) {
 		tracer := Tracer{
 			Now:     time.Now(),
@@ -53,7 +55,6 @@ func (app *App) HandlerFunc(method, group, path string, handler Handler) {
 
 func (app *App) HandlerFuncWithMid(method, group, path string, handler Handler, middleware ...Middleware) {
 	handler = wrapMiddleware(middleware, handler)
-	handler = wrapMiddleware(app.mw, handler)
 
 	app.HandlerFunc(method, group, path, handler)
 }

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agkmw/reddit-clone/internal/api/mid"
 	"github.com/agkmw/reddit-clone/internal/app/sdk/errs"
 	"github.com/agkmw/reddit-clone/internal/platform/logger"
 	"github.com/agkmw/reddit-clone/internal/platform/validator"
@@ -66,7 +67,12 @@ func main() {
 		log.Info(ctx, msg, args...)
 	}
 
-	api := web.NewApp(logFn, nil)
+	api := web.NewApp(
+		logFn,
+		mid.HandleLogs(log),
+		mid.HandleErrors(log),
+		mid.RecoverPanics(),
+	)
 
 	api.HandlerFunc(http.MethodGet, "/v1", "/healthcheck", app.healthcheckHandler)
 	api.HandlerFunc(http.MethodGet, "/v1", "/testServerError", app.testServerError)
@@ -110,102 +116,27 @@ func main() {
 	log.Info(ctx, "server shut down")
 }
 
+// =============================================================================
+
 func (app *app) healthcheckHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	app.logger.Info(ctx, "request started")
-
-	defer func() {
-		status := web.GetStatusCode(ctx)
-		app.logger.Info(ctx, "request completed", "status", status)
-	}()
-
 	data := web.Envelope{
 		"environment": app.config.environment,
 		"version":     version,
 		"build":       build,
 	}
 
-	err := web.Respond(ctx, w, http.StatusOK, data)
-	// TODO: Just return the error from the web.Respond after centralized logging is implemented
-	if err != nil {
-		return errs.NewServerError(
-			http.StatusInternalServerError,
-			errors.New("unable to respond"),
-			errors.New("internal server error"),
-		)
-	}
-
-	return nil
+	return web.Respond(ctx, w, http.StatusOK, data)
 }
 
 func (app *app) testServerError(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	app.logger.Info(ctx, "request started")
-
-	defer func() {
-		status := web.GetStatusCode(ctx)
-		app.logger.Info(ctx, "request completed", "status", status)
-	}()
-
-	se := errs.NewServerError(http.StatusInternalServerError, errors.New("test error"), errors.New("internal server error"))
-
-	app.logger.Error(ctx, "handled error during request", "ERROR", se.LogErr)
-
-	env := web.Envelope{
-		"status":  "error",
-		"message": se.ResErr.Error(),
-	}
-
-	err := web.Respond(ctx, w, se.Code, env)
-	// TODO: Just return the error from the web.Respond after centralized logging is implemented
-	if err != nil {
-		return errs.NewServerError(
-			http.StatusInternalServerError,
-			errors.New("unable to respond"),
-			errors.New("internal server error"),
-		)
-	}
-
-	return nil
+	return errs.NewServerError(errs.Internal, errors.New("server error"), errs.InternalMsg)
 }
 
 func (app *app) testClientError(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	app.logger.Info(ctx, "request started")
-
-	defer func() {
-		status := web.GetStatusCode(ctx)
-		app.logger.Info(ctx, "request completed", "status", status)
-	}()
-
-	ce := errs.NewClientError(http.StatusBadRequest, "there's nothing here, but chickens!", errors.New("you've messed up"))
-
-	app.logger.Info(ctx, ce.ResErr.Error(), "method", r.Method, "status", ce.Code, "uri", r.RequestURI)
-
-	env := web.Envelope{
-		"status":  "fail",
-		"message": ce.ResErr.Error(),
-		"data":    ce.Data,
-	}
-
-	err := web.Respond(ctx, w, ce.Code, env)
-	// TODO: Just return the error from the web.Respond after centralized logging is implemented
-	if err != nil {
-		return errs.NewServerError(
-			http.StatusInternalServerError,
-			err,
-			errors.New("internal server error"),
-		)
-	}
-
-	return nil
+	return errs.NewClientError(errs.BadRequest, errors.New("client error"), errs.BadRequestMsg)
 }
 
 func (app *app) createPostHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	app.logger.Info(ctx, "request started")
-
-	defer func() {
-		status := web.GetStatusCode(ctx)
-		app.logger.Info(ctx, "request completed", "status", status)
-	}()
-
 	var input struct {
 		Title string `json:"title"`
 		Body  string `json:"body"`
@@ -213,25 +144,8 @@ func (app *app) createPostHandler(ctx context.Context, w http.ResponseWriter, r 
 
 	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
-		ce := errs.NewClientError(http.StatusBadRequest, "there's nothing here, but chickens!", errors.New("you've messed up"))
+		return errs.NewClientError(errs.BadRequest, err, errs.BadRequestMsg)
 
-		app.logger.Info(ctx, ce.ResErr.Error(), "method", r.Method, "status", ce.Code, "uri", r.RequestURI)
-
-		env := web.Envelope{
-			"status":  "fail",
-			"message": ce.ResErr.Error(),
-			"data":    ce.Data,
-		}
-
-		err := web.Respond(ctx, w, ce.Code, env)
-		// TODO: Just return the error from the web.Respond after centralized logging is implemented
-		if err != nil {
-			return errs.NewServerError(
-				http.StatusInternalServerError,
-				err,
-				errors.New("internal server error"),
-			)
-		}
 	}
 
 	v := validator.New()
@@ -243,27 +157,7 @@ func (app *app) createPostHandler(ctx context.Context, w http.ResponseWriter, r 
 	v.Check(len(input.Body) <= 50, "body", "must not be longer than 50 bytes")
 
 	if !v.Valid() {
-		ce := errs.NewClientError(http.StatusPreconditionFailed, v.Errors, errors.New("invalid request payload"))
-
-		app.logger.Info(ctx, ce.ResErr.Error(), "method", r.Method, "status", ce.Code, "uri", r.RequestURI)
-
-		env := web.Envelope{
-			"status":  "fail",
-			"message": ce.ResErr.Error(),
-			"data":    ce.Data,
-		}
-
-		err := web.Respond(ctx, w, ce.Code, env)
-		// TODO: Just return the error from the web.Respond after centralized logging is implemented
-		if err != nil {
-			return errs.NewServerError(
-				http.StatusInternalServerError,
-				err,
-				errors.New("internal server error"),
-			)
-		}
-
-		return nil
+		return errs.NewClientError(errs.FailedValidation, v.Errors, errs.FailedValidationMsg)
 	}
 
 	env := web.Envelope{
@@ -271,15 +165,5 @@ func (app *app) createPostHandler(ctx context.Context, w http.ResponseWriter, r 
 		"data":   input,
 	}
 
-	err = web.Respond(ctx, w, http.StatusOK, env)
-	// TODO: Just return the error from the web.Respond after centralized logging is implemented
-	if err != nil {
-		return errs.NewServerError(
-			http.StatusInternalServerError,
-			err,
-			errors.New("internal server error"),
-		)
-	}
-
-	return nil
+	return web.Respond(ctx, w, http.StatusOK, env)
 }
