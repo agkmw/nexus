@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/agkmw/reddit-clone/internal/app/sdk/errs"
 	"github.com/agkmw/reddit-clone/internal/platform/logger"
+	"github.com/agkmw/reddit-clone/internal/platform/validator"
 	"github.com/agkmw/reddit-clone/internal/platform/web"
 )
 
@@ -69,6 +71,7 @@ func main() {
 	api.HandlerFunc(http.MethodGet, "/v1", "/healthcheck", app.healthcheckHandler)
 	api.HandlerFunc(http.MethodGet, "/v1", "/testServerError", app.testServerError)
 	api.HandlerFunc(http.MethodGet, "/v1", "/testClientError", app.testClientError)
+	api.HandlerFunc(http.MethodPost, "/v1", "/posts", app.createPostHandler)
 
 	server := http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.port),
@@ -183,6 +186,92 @@ func (app *app) testClientError(ctx context.Context, w http.ResponseWriter, r *h
 	}
 
 	err := web.Respond(ctx, w, ce.Code, env)
+	// TODO: Just return the error from the web.Respond after centralized logging is implemented
+	if err != nil {
+		return errs.NewServerError(
+			http.StatusInternalServerError,
+			err,
+			errors.New("internal server error"),
+		)
+	}
+
+	return nil
+}
+
+func (app *app) createPostHandler(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	app.logger.Info(ctx, "request started")
+
+	defer func() {
+		status := web.GetStatusCode(ctx)
+		app.logger.Info(ctx, "request completed", "status", status)
+	}()
+
+	var input struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&input)
+	if err != nil {
+		ce := errs.NewClientError(http.StatusBadRequest, "there's nothing here, but chickens!", errors.New("you've messed up"))
+
+		app.logger.Info(ctx, ce.ResErr.Error(), "method", r.Method, "status", ce.Code, "uri", r.RequestURI)
+
+		env := web.Envelope{
+			"status":  "fail",
+			"message": ce.ResErr.Error(),
+			"data":    ce.Data,
+		}
+
+		err := web.Respond(ctx, w, ce.Code, env)
+		// TODO: Just return the error from the web.Respond after centralized logging is implemented
+		if err != nil {
+			return errs.NewServerError(
+				http.StatusInternalServerError,
+				err,
+				errors.New("internal server error"),
+			)
+		}
+	}
+
+	v := validator.New()
+
+	v.Check(input.Title != "", "title", "must not be empty")
+	v.Check(len(input.Title) <= 10, "title", "must not be longer than 10 bytes")
+
+	v.Check(input.Body != "", "body", "must not be empty")
+	v.Check(len(input.Body) <= 50, "body", "must not be longer than 50 bytes")
+
+	if !v.Valid() {
+		ce := errs.NewClientError(http.StatusPreconditionFailed, v.Errors, errors.New("invalid request payload"))
+
+		app.logger.Info(ctx, ce.ResErr.Error(), "method", r.Method, "status", ce.Code, "uri", r.RequestURI)
+
+		env := web.Envelope{
+			"status":  "fail",
+			"message": ce.ResErr.Error(),
+			"data":    ce.Data,
+		}
+
+		err := web.Respond(ctx, w, ce.Code, env)
+		// TODO: Just return the error from the web.Respond after centralized logging is implemented
+		if err != nil {
+			return errs.NewServerError(
+				http.StatusInternalServerError,
+				err,
+				errors.New("internal server error"),
+			)
+		}
+
+		return nil
+	}
+
+	env := web.Envelope{
+		"status": "success",
+		"data":   input,
+	}
+
+	err = web.Respond(ctx, w, http.StatusOK, env)
 	// TODO: Just return the error from the web.Respond after centralized logging is implemented
 	if err != nil {
 		return errs.NewServerError(
