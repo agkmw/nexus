@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/agkmw/reddit-clone/internal/app/sdk/errs"
 	"github.com/agkmw/reddit-clone/internal/platform/logger"
 	"github.com/agkmw/reddit-clone/internal/platform/web"
+	"golang.org/x/time/rate"
 )
 
 var httpStatus [7]int
@@ -72,8 +75,9 @@ func HandleErrors(log *logger.Logger) web.Middleware {
 						"source_err_func", filepath.Base(clientError.FuncName))
 
 					env := web.Envelope{
-						"status": "fail",
-						"data":   clientError.Data,
+						"status":  "fail",
+						"message": clientError.ResMsg.Error(),
+						"data":    clientError.Data,
 					}
 
 					return web.Respond(ctx, w, httpStatus[clientError.Code.Value()], env)
@@ -129,6 +133,66 @@ func HandleLogs(log *logger.Logger) web.Middleware {
 			}
 
 			return err
+		}
+
+		return hdl
+	}
+
+	return mid
+}
+
+func RateLimit(enabled bool, rps float64, burst int) web.Middleware {
+	mid := func(handler web.Handler) web.Handler {
+		type client struct {
+			limiter  *rate.Limiter
+			lastSeen time.Time
+		}
+
+		var (
+			mu      sync.Mutex
+			clients = make(map[string]*client)
+		)
+
+		go func() {
+			time.Sleep(time.Minute)
+
+			mu.Lock()
+			{
+				for ip, client := range clients {
+					if time.Since(client.lastSeen) >= 3*time.Minute {
+						delete(clients, ip)
+					}
+				}
+			}
+			mu.Unlock()
+		}()
+
+		hdl := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+			if enabled {
+				ip, _, err := net.SplitHostPort(r.RemoteAddr)
+				if err != nil {
+					return errs.NewServerError(errs.Internal, err, errs.InternalMsg)
+				}
+
+				mu.Lock()
+				{
+					if _, found := clients[ip]; !found {
+						clients[ip] = &client{
+							limiter: rate.NewLimiter(rate.Limit(rps), burst),
+						}
+					}
+
+					clients[ip].lastSeen = time.Now()
+
+					if !clients[ip].limiter.Allow() {
+						mu.Unlock()
+						return errs.NewClientError(errs.RateLimitExceeded, nil, errs.RateLimitExceededMsg)
+					}
+				}
+				mu.Unlock()
+			}
+
+			return handler(ctx, w, r)
 		}
 
 		return hdl

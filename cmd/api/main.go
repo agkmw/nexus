@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/agkmw/reddit-clone/internal/api/mid"
+	"github.com/agkmw/reddit-clone/internal/api/sdk/mid"
 	"github.com/agkmw/reddit-clone/internal/app/sdk/errs"
 	"github.com/agkmw/reddit-clone/internal/platform/logger"
 	"github.com/agkmw/reddit-clone/internal/platform/validator"
@@ -26,6 +26,11 @@ var build = "dev"
 type config struct {
 	port        int
 	environment string
+	limiter     struct {
+		enabled bool
+		rps     float64
+		burst   int
+	}
 }
 
 type app struct {
@@ -38,6 +43,10 @@ func main() {
 
 	flag.IntVar(&cfg.port, "port", 4000, "Application server port")
 	flag.StringVar(&cfg.environment, "environment", "development", "Environment (development|staging|production)")
+
+	flag.Float64Var(&cfg.limiter.rps, "limiter-rps", 2, "Rate limiter maximum requests per second")
+	flag.IntVar(&cfg.limiter.burst, "limiter-burst", 4, "Rate limiter maximum burst")
+	flag.BoolVar(&cfg.limiter.enabled, "limiter-enabled", true, "Enable rate limiter")
 
 	flag.Parse()
 
@@ -72,6 +81,7 @@ func main() {
 		mid.HandleLogs(log),
 		mid.HandleErrors(log),
 		mid.RecoverPanics(),
+		mid.RateLimit(app.config.limiter.enabled, app.config.limiter.rps, app.config.limiter.burst),
 	)
 
 	api.HandlerFunc(http.MethodGet, "/v1", "/healthcheck", app.healthcheckHandler)
@@ -82,6 +92,7 @@ func main() {
 	server := http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.port),
 		Handler:      api,
+		IdleTimeout:  2 * time.Minute,
 		ReadTimeout:  3 * time.Second,
 		WriteTimeout: 5 * time.Second,
 		ErrorLog:     logger.NewStdLogger(log, logger.LevelError),
@@ -97,7 +108,7 @@ func main() {
 	go func() {
 		sig := <-shutdown
 
-		log.Info(ctx, "server shutting down", "sig", sig)
+		log.Info(ctx, "server shutting down", "sig", sig.String())
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
