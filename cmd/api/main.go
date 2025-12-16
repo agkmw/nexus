@@ -14,6 +14,7 @@ import (
 
 	"github.com/agkmw/reddit-clone/internal/api/sdk/mid"
 	"github.com/agkmw/reddit-clone/internal/app/sdk/errs"
+	"github.com/agkmw/reddit-clone/internal/platform/db"
 	"github.com/agkmw/reddit-clone/internal/platform/logger"
 	"github.com/agkmw/reddit-clone/internal/platform/validator"
 	"github.com/agkmw/reddit-clone/internal/platform/web"
@@ -66,6 +67,27 @@ func main() {
 	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, "reddit-clone", traceIDFn, events)
 
 	ctx := context.Background()
+
+	pool, err := db.Open("postgres://rdcadmin:pa55word@localhost/rdc?sslmode=disable")
+	if err != nil {
+		log.Error(ctx, "failed to open db", "ERROR", err)
+	} else {
+		log.Info(ctx, "connected to the database")
+	}
+
+	var res struct {
+		ID   int
+		Name string
+	}
+	if err := pool.QueryRow(ctx,
+		"insert into test (name) values ($1) returning id, name", "aung khant",
+	).Scan(&res.ID, &res.Name); err != nil {
+		log.Info(ctx, "FAILED TO INSERT TEST RECORD")
+	} else {
+		fmt.Printf("id: %d, name: %s\n", res.ID, res.Name)
+	}
+
+	defer pool.Close()
 
 	app := &app{
 		config: cfg,
