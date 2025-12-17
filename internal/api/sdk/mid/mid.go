@@ -142,7 +142,13 @@ func HandleLogs(log *logger.Logger) web.Middleware {
 	return mid
 }
 
-func RateLimit(enabled bool, rps float64, burst int) web.Middleware {
+type LimiterConfig struct {
+	Enabled bool
+	RPS     float64
+	Burst   int
+}
+
+func RateLimit(cfg LimiterConfig) web.Middleware {
 	mid := func(handler web.Handler) web.Handler {
 		type client struct {
 			limiter  *rate.Limiter
@@ -169,7 +175,7 @@ func RateLimit(enabled bool, rps float64, burst int) web.Middleware {
 		}()
 
 		hdl := func(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-			if enabled {
+			if cfg.Enabled {
 				ip, _, err := net.SplitHostPort(r.RemoteAddr)
 				if err != nil {
 					return errs.NewServerError(errs.Internal, err, errs.InternalMsg)
@@ -179,7 +185,7 @@ func RateLimit(enabled bool, rps float64, burst int) web.Middleware {
 				{
 					if _, found := clients[ip]; !found {
 						clients[ip] = &client{
-							limiter: rate.NewLimiter(rate.Limit(rps), burst),
+							limiter: rate.NewLimiter(rate.Limit(cfg.RPS), cfg.Burst),
 						}
 					}
 
