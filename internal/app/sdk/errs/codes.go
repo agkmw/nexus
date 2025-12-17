@@ -20,6 +20,7 @@ var (
 	MethodNotAllowed  = ErrCode{value: 4}
 	EditConflict      = ErrCode{value: 5}
 	RateLimitExceeded = ErrCode{value: 6}
+	AlreadyExists     = ErrCode{value: 7}
 )
 
 var (
@@ -27,7 +28,8 @@ var (
 	BadRequestMsg        = errors.New("the request payload contains malformed JSON")
 	FailedValidationMsg  = errors.New("the request payload failed the validation rules")
 	NotFoundMsg          = errors.New("the requested resource could not be found")
-	MethodNotAllowedMsg  = errors.New("the % method is not supported for the requested resource")
+	MethodNotAllowedMsg  = errors.New("the %s method is not supported for the requested resource")
 	EditConflictMsg      = errors.New("unable to update the resource due to an edit conflict")
 	RateLimitExceededMsg = errors.New("rate limit exceeded")
+	AlreadyExistsMsg     = errors.New("the record already exists")
 )
