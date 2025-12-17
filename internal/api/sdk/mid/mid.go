@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-var httpStatus [7]int
+var httpStatus [8]int
 
 func init() {
 	httpStatus[errs.Internal.Value()] = http.StatusInternalServerError
@@ -26,6 +26,7 @@ func init() {
 	httpStatus[errs.MethodNotAllowed.Value()] = http.StatusMethodNotAllowed
 	httpStatus[errs.EditConflict.Value()] = http.StatusConflict
 	httpStatus[errs.RateLimitExceeded.Value()] = http.StatusTooManyRequests
+	httpStatus[errs.AlreadyExists.Value()] = http.StatusConflict
 }
 
 func RecoverPanics() web.Middleware {

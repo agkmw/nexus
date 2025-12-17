@@ -9,14 +9,14 @@ import (
 )
 
 type User struct {
-	ID         uuid.UUID
-	Username   string
-	Email      string
-	Password   password
-	CreatedAt  time.Time
-	Last_Login time.Time
-	Activated  bool
-	Version    int
+	ID        uuid.UUID  `json:"id"`
+	Username  string     `json:"username"`
+	Email     string     `json:"email"`
+	Password  password   `json:"password"`
+	CreatedAt time.Time  `json:"created_at"`
+	LastLogin *time.Time `json:"last_login"`
+	Activated bool       `json:"activated"`
+	Version   int        `json:"-"`
 }
 
 type password struct {
