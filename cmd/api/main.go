@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agkmw/reddit-clone/internal/api/domain/userapi"
 	"github.com/agkmw/reddit-clone/internal/api/sdk/mid"
 	"github.com/agkmw/reddit-clone/internal/app/sdk/errs"
 	"github.com/agkmw/reddit-clone/internal/platform/db"
@@ -68,7 +69,7 @@ func main() {
 
 	ctx := context.Background()
 
-	pool, err := db.Open("postgres://rdcadmin:pa55word@localhost/rdc?sslmode=disable")
+	pool, err := db.Open("postgres://greenlight:pa55word@localhost/greenlight?sslmode=disable")
 	if err != nil {
 		log.Error(ctx, "failed to open db", "ERROR", err)
 	} else {
@@ -110,6 +111,8 @@ func main() {
 	api.HandlerFunc(http.MethodGet, "/v1", "/testServerError", app.testServerError)
 	api.HandlerFunc(http.MethodGet, "/v1", "/testClientError", app.testClientError)
 	api.HandlerFunc(http.MethodPost, "/v1", "/posts", app.createPostHandler)
+
+	userapi.Routes(api)
 
 	server := http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.port),
