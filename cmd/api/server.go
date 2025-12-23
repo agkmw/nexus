@@ -13,14 +13,19 @@ import (
 	"github.com/agkmw/reddit-clone/internal/platform/logger"
 )
 
-func (app *app) serve(ctx context.Context, mux http.Handler) error {
+func serve(
+	ctx context.Context,
+	cfg config,
+	mux http.Handler,
+	log *logger.Logger,
+) error {
 	server := http.Server{
-		Addr:         fmt.Sprintf(":%d", app.config.port),
+		Addr:         fmt.Sprintf(":%d", cfg.port),
 		Handler:      mux,
 		IdleTimeout:  2 * time.Minute,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
-		ErrorLog:     logger.NewStdLogger(app.logger, logger.LevelError),
+		ErrorLog:     logger.NewStdLogger(log, logger.LevelError),
 	}
 
 	shutdownErr := make(chan error)
@@ -30,7 +35,7 @@ func (app *app) serve(ctx context.Context, mux http.Handler) error {
 		signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT)
 		sig := <-shutdown
 
-		app.logger.Info(ctx, "gracefully shutting down the server", "signal", sig.String())
+		log.Info(ctx, "gracefully shutting down the server", "signal", sig.String())
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -40,13 +45,13 @@ func (app *app) serve(ctx context.Context, mux http.Handler) error {
 			shutdownErr <- err
 		}
 
-		app.logger.Info(ctx, "completing background tasks", "addr", server.Addr)
+		log.Info(ctx, "completing background tasks", "addr", server.Addr)
 
-		app.wg.Wait()
+		// app.wg.Wait()
 		shutdownErr <- nil
 	}()
 
-	app.logger.Info(ctx, "starting server", "addr", server.Addr, "env", app.config.environment)
+	log.Info(ctx, "starting server", "addr", server.Addr, "env", cfg.environment)
 
 	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -56,7 +61,7 @@ func (app *app) serve(ctx context.Context, mux http.Handler) error {
 		return err
 	}
 
-	app.logger.Info(ctx, "server gracefully shut down")
+	log.Info(ctx, "server gracefully shut down")
 
 	return nil
 }

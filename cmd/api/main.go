@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
-	"sync"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"github.com/agkmw/reddit-clone/internal/api/sdk/mid"
-	"github.com/agkmw/reddit-clone/internal/api/sdk/mux"
 	"github.com/agkmw/reddit-clone/internal/platform/db"
 	"github.com/agkmw/reddit-clone/internal/platform/logger"
 	"github.com/agkmw/reddit-clone/internal/platform/web"
@@ -25,25 +28,123 @@ type config struct {
 		rps     float64
 		burst   int
 	}
-}
+	db struct {
+		dsn string
 
-type app struct {
-	logger *logger.Logger
-	config config
-	wg     sync.WaitGroup
+		maxConns     int
+		minConns     int
+		minIdleConns int
+
+		maxConnIdleTime time.Duration
+		maxConnLifeTime time.Duration
+
+		healthCheckPeriod time.Duration
+	}
 }
 
 func main() {
+	ctx := context.Background()
+	if err := run(ctx, os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(1)
+	}
+}
+
+func run(
+	ctx context.Context,
+	args []string,
+	getenv func(string) string,
+	stdin io.Reader,
+	stdout, stderr io.Writer,
+) error {
+	// -------------------------------------------------------------------------
+
+	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// -------------------------------------------------------------------------
+
 	var cfg config
 
-	flag.IntVar(&cfg.port, "port", 4000, "Application server port")
-	flag.StringVar(&cfg.environment, "environment", "development", "Environment (development|staging|production)")
+	fs := flag.NewFlagSet("reddit-clone", flag.PanicOnError)
 
-	flag.Float64Var(&cfg.limiter.rps, "limiter-rps", 2, "Rate limiter maximum requests per second")
-	flag.IntVar(&cfg.limiter.burst, "limiter-burst", 4, "Rate limiter maximum burst")
-	flag.BoolVar(&cfg.limiter.enabled, "limiter-enabled", true, "Enable rate limiter")
+	fs.IntVar(
+		&cfg.port,
+		"port",
+		4000,
+		"Application server port",
+	)
+	fs.StringVar(
+		&cfg.environment,
+		"environment",
+		"development",
+		"Environment (development|staging|production)",
+	)
 
-	flag.Parse()
+	fs.Float64Var(
+		&cfg.limiter.rps,
+		"limiter-rps",
+		2,
+		"Rate limiter maximum requests per second",
+	)
+	fs.IntVar(
+		&cfg.limiter.burst,
+		"limiter-burst",
+		4,
+		"Rate limiter maximum burst",
+	)
+	fs.BoolVar(
+		&cfg.limiter.enabled,
+		"limiter-enabled",
+		true,
+		"Enable rate limiter",
+	)
+
+	fs.StringVar(
+		&cfg.db.dsn,
+		"db-dsn",
+		"",
+		"PostgreSQL DSN",
+	)
+	fs.IntVar(
+		&cfg.db.maxConns,
+		"db-max-conns",
+		25,
+		"PostgreSQL max open connections",
+	)
+	fs.IntVar(
+		&cfg.db.minConns,
+		"db-min-conns",
+		5,
+		"PostgreSQL min open connections",
+	)
+	fs.IntVar(
+		&cfg.db.minIdleConns,
+		"db-min-idle-conns",
+		25,
+		"PostgreSQL min idle connections",
+	)
+
+	fs.DurationVar(
+		&cfg.db.maxConnIdleTime,
+		"db-max-idle-time",
+		15*time.Minute,
+		"PostgeSQL max connection idle time",
+	)
+	fs.DurationVar(
+		&cfg.db.maxConnLifeTime,
+		"db-max-life-time",
+		2*time.Hour,
+		"PostgeSQL max connection life time",
+	)
+	fs.DurationVar(
+		&cfg.db.healthCheckPeriod,
+		"db-heathz-period",
+		time.Minute,
+		"PostgeSQL health check period",
+	)
+
+	fs.Parse(args)
 
 	// -------------------------------------------------------------------------
 
@@ -55,47 +156,48 @@ func main() {
 
 	events := logger.Events{
 		Error: func(ctx context.Context, r logger.Record) {
-			// TODO: Implement sending email to the dev
 			log.Info(ctx, "******* SEND ALERT! *******")
 		},
 	}
 
-	log = logger.NewWithEvents(os.Stdout, logger.LevelInfo, "reddit-clone", traceIDFn, events)
+	log = logger.NewWithEvents(
+		stdout,
+		logger.LevelInfo,
+		"reddit-clone",
+		traceIDFn,
+		events)
 
 	// -------------------------------------------------------------------------
 
-	ctx := context.Background()
+	dbCfg := db.Config{
+		DSN: cfg.db.dsn,
 
-	pool, err := db.Open("postgres://rdcadmin:pa55word@localhost/rdc?sslmode=disable")
+		MaxConns:     cfg.db.maxConns,
+		MinConns:     cfg.db.minConns,
+		MinIdleConns: cfg.db.minIdleConns,
+
+		MaxConnIdleTime: cfg.db.maxConnIdleTime,
+		MaxConnLifeTime: cfg.db.maxConnLifeTime,
+
+		HealthCheckPeriod: cfg.db.healthCheckPeriod,
+	}
+
+	pool, err := db.Open(ctx, dbCfg)
 	if err != nil {
-		log.Error(ctx, "failed to open db", "ERROR", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open db: %w", err)
 	}
 	defer pool.Close()
 
-	log.Info(ctx, "connected to the database")
+	log.Info(ctx, "successfully connected to the database")
 
 	// -------------------------------------------------------------------------
 
-	app := &app{
-		config: cfg,
-		logger: log,
+	// TODO:
+	var mux http.Handler
+
+	if err := serve(ctx, cfg, mux, log); err != nil {
+		return fmt.Errorf("server failed %w", err)
 	}
 
-	muxCfg := mux.Config{
-		Environment: cfg.environment,
-		Version:     version,
-		Build:       build,
-		Limiter: mid.LimiterConfig{
-			Enabled: cfg.limiter.enabled,
-			RPS:     cfg.limiter.rps,
-			Burst:   cfg.limiter.burst,
-		},
-		Pool: pool,
-		Log:  log,
-	}
-
-	if err := app.serve(ctx, mux.WebAPI(muxCfg)); err != nil {
-		log.Error(ctx, "server failed", "ERROR", err)
-	}
+	return nil
 }
