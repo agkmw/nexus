@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS posts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    poster_id UUID NOT NULL REFERENCES users ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMP(0) WITH TIME ZONE NOT NULL DEFAULT NOW(), 
+    edited_at TIMESTAMP(0) WITH TIME ZONE, 
+    version INTEGER NOT NULL DEFAULT 1 
+);
