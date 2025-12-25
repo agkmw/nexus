@@ -19,7 +19,12 @@ type App struct {
 	mw  []Middleware
 }
 
-func NewApp(logFn LogFn, mw ...Middleware) *App {
+func NewApp(
+	logFn LogFn,
+	methodNotAllowed Handler,
+	notFound Handler,
+	mw ...Middleware,
+) *App {
 	mux := chi.NewMux()
 
 	return &App{
@@ -29,9 +34,47 @@ func NewApp(logFn LogFn, mw ...Middleware) *App {
 	}
 }
 
-func (app *App) HandlerFunc(method, group, path string, handler Handler) {
+func (app *App) HandlerFunc(
+	method, group, path string,
+	handler Handler,
+) {
 	handler = wrapMiddleware(app.mw, handler)
 
+	if group != "" {
+		path = group + path
+	}
+
+	app.mux.MethodFunc(method, path, app.handle(handler))
+}
+
+func (app *App) HandlerFuncWithMid(
+	method, group, path string,
+	handler Handler,
+	middleware ...Middleware,
+) {
+	handler = wrapMiddleware(middleware, handler)
+	handler = wrapMiddleware(app.mw, handler)
+
+	if group != "" {
+		path = group + path
+	}
+
+	app.mux.MethodFunc(method, path, app.handle(handler))
+}
+
+func (app *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	app.mux.ServeHTTP(w, r)
+}
+
+func (app *App) MethodNotAllowed(handler Handler) {
+	app.mux.MethodNotAllowed(app.handle(handler))
+}
+
+func (app *App) NotFound(handler Handler) {
+	app.mux.NotFound(app.handle(handler))
+}
+
+func (app *App) handle(handler Handler) http.HandlerFunc {
 	h := func(w http.ResponseWriter, r *http.Request) {
 		tracer := Tracer{
 			Now:     time.Now(),
@@ -46,21 +89,7 @@ func (app *App) HandlerFunc(method, group, path string, handler Handler) {
 		}
 	}
 
-	if group != "" {
-		path = group + path
-	}
-
-	app.mux.MethodFunc(method, path, h)
-}
-
-func (app *App) HandlerFuncWithMid(method, group, path string, handler Handler, middleware ...Middleware) {
-	handler = wrapMiddleware(middleware, handler)
-
-	app.HandlerFunc(method, group, path, handler)
-}
-
-func (app *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	app.mux.ServeHTTP(w, r)
+	return h
 }
 
 // =============================================================================
