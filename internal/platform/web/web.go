@@ -19,19 +19,19 @@ type App struct {
 	mw  []Middleware
 }
 
-func NewApp(
-	logFn LogFn,
-	methodNotAllowed Handler,
-	notFound Handler,
-	mw ...Middleware,
-) *App {
+func NewApp(logFn LogFn, mw ...Middleware) *App {
 	mux := chi.NewMux()
 
-	return &App{
+	app := App{
 		log: logFn,
 		mux: mux,
 		mw:  mw,
 	}
+
+	app.NotFound(NotFound)
+	app.MethodNotAllowed(MethodNotAllowed)
+
+	return &app
 }
 
 func (app *App) HandlerFunc(
