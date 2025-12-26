@@ -35,7 +35,9 @@ func NewApp(
 }
 
 func (app *App) HandlerFunc(
-	method, group, path string,
+	method,
+	group,
+	path string,
 	handler Handler,
 ) {
 	handler = wrapMiddleware(app.mw, handler)
@@ -48,7 +50,9 @@ func (app *App) HandlerFunc(
 }
 
 func (app *App) HandlerFuncWithMid(
-	method, group, path string,
+	method,
+	group,
+	path string,
 	handler Handler,
 	middleware ...Middleware,
 ) {
@@ -85,24 +89,9 @@ func (app *App) handle(handler Handler) http.HandlerFunc {
 
 		err := handler(ctx, w, r)
 		if err != nil {
-			app.log(ctx, "caught an error propagated through the chain", "ERROR", err)
+			app.log(ctx, "unexpected error occurred", "error", err)
 		}
 	}
 
 	return h
-}
-
-// =============================================================================
-
-type Middleware func(handler Handler) Handler
-
-func wrapMiddleware(middlewares []Middleware, handler Handler) Handler {
-	for i := len(middlewares) - 1; i >= 0; i-- {
-		mid := middlewares[i]
-		if mid != nil {
-			handler = mid(handler)
-		}
-	}
-
-	return handler
 }
