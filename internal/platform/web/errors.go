@@ -44,7 +44,7 @@ func FailedValidationResponse(ctx context.Context, w http.ResponseWriter, data e
 	return ErrorResponseWithData(ctx, w, errs.FailedValidation, msg, data)
 }
 
-func RateLimitExceeded(ctx context.Context, w http.ResponseWriter) error {
+func RateLimitExceededResponse(ctx context.Context, w http.ResponseWriter) error {
 	msg := "too many requests, please try again later"
 	return ErrorResponse(ctx, w, errs.TooManyRequests, msg)
 }
