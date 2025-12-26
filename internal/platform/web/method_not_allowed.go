@@ -12,5 +12,5 @@ func MethodNotAllowed(ctx context.Context, w http.ResponseWriter, r *http.Reques
 		"message": fmt.Sprintf("the %s method is not supported for this resource", r.Method),
 	}
 
-	return Encode(ctx, w, http.StatusMethodNotAllowed, env, nil)
+	return Encode(ctx, w, http.StatusMethodNotAllowed, env)
 }

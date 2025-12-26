@@ -14,6 +14,25 @@ func Encode(
 	w http.ResponseWriter,
 	status int,
 	data Envelope,
+) error {
+	return encode(ctx, w, status, data, http.Header{})
+}
+
+func EncodeWithHeaders(
+	ctx context.Context,
+	w http.ResponseWriter,
+	status int,
+	data Envelope,
+	headers http.Header,
+) error {
+	return encode(ctx, w, status, data, http.Header{})
+}
+
+func encode(
+	ctx context.Context,
+	w http.ResponseWriter,
+	status int,
+	data Envelope,
 	headers http.Header,
 ) error {
 	setStatusCode(ctx, status)

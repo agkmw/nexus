@@ -9,6 +9,7 @@ var (
 	AlreadyExists      = ErrorType{"already_exists"}
 	EditConflict       = ErrorType{"edit_conflict"}
 	FailedPrecondition = ErrorType{"failed_precondition"}
+	FailedValidation   = ErrorType{"failed_validation"}
 	NotFound           = ErrorType{"not_found"}
 	Internal           = ErrorType{"internal"}
 	InvalidArgument    = ErrorType{"invalid_argument"}
