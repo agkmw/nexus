@@ -7,8 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/go-chi/chi/v5"
 )
 
 func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
@@ -60,8 +58,4 @@ func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	}
 
 	return nil
-}
-
-func ReadParam(r *http.Request, key string) string {
-	return chi.URLParam(r, key)
 }
